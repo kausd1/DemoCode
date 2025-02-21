@@ -1,0 +1,33 @@
+let securityFeatures = datatable (ConfigurationId: string, FeatureName: string)
+[
+    "scid-2070", "Firewall",
+    "scid-96", "Network Protection",
+    "scid-2060", "SmartScreen",
+    "scid-2021", "Controlled Folder Access",
+    "scid-2002", "Device Health",
+    "scid-2011", "Security Intelligence Updates"
+];
+ 
+// Retrieve the latest device information
+let deviceInfo = DeviceInfo
+| summarize arg_max(Timestamp, DeviceName, OnboardingStatus) by DeviceId;
+ 
+// Retrieve the compliance status of each security feature
+let complianceStatus = DeviceTvmSecureConfigurationAssessment
+| where IsApplicable == true
+| project DeviceId, ConfigurationId, IsCompliant = toint(IsCompliant); // Convert boolean to integer
+ 
+// Join compliance status with security features to get readable names
+let featureStatus = complianceStatus
+| join kind=inner (securityFeatures) on ConfigurationId
+| project DeviceId, FeatureName, IsCompliant;
+ 
+// Merge with device information to get device names
+let fullStatus = featureStatus
+| join kind=leftouter (deviceInfo | project DeviceId, DeviceName) on DeviceId
+| project FeatureName, DeviceName, IsCompliant;
+ 
+// Ensure all devices are grouped into a proper list per FeatureName & ComplianceStatus**
+fullStatus
+| summarize Devices = make_list(DeviceName, 1000) by FeatureName, ComplianceStatus = iff(IsCompliant == 1, "Enabled", "Disabled")
+| order by FeatureName asc, ComplianceStatus asc
